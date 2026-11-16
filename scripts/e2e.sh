@@ -77,7 +77,9 @@ debug() {
   kubectl -n "$NS" get all,pvc,netpol -o wide
   kubectl -n "$NS" describe pod "$POD"
   kubectl -n "$NS" logs "$POD" -c install-agents --tail=100
-  kubectl -n "$NS" logs "$POD" -c t3code --tail=200 | sed -E 's/(token=|Token: )[A-Za-z0-9_-]+/\1REDACTED/g'
+  # Startup logs carry the owner pairing token: plain, URL-encoded and as a QR code.
+  kubectl -n "$NS" logs "$POD" -c t3code --tail=200 \
+    | sed -E 's/(token=|token%3D|Token: )[A-Za-z0-9_-]+/\1REDACTED/g; /[█▀▄]/d'
   kubectl -n "$NS" get events --sort-by=.lastTimestamp | tail -40
 }
 
