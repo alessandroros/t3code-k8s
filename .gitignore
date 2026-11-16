@@ -3,3 +3,6 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Personal values files (may contain cluster details)
+/values-*.yaml
