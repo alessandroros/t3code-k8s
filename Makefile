@@ -32,8 +32,8 @@ kind: image ## Create a kind cluster and load the image
 	kind load docker-image $(IMAGE):$(TAG) --name $(KIND)
 
 e2e: kind ## Install and smoke-test on kind
-	IMAGE_REPO=$(IMAGE) IMAGE_TAG=$(TAG) scripts/e2e.sh install
-	scripts/e2e.sh smoke
+	KUBE_CONTEXT=kind-$(KIND) IMAGE_REPO=$(IMAGE) IMAGE_TAG=$(TAG) scripts/e2e.sh install
+	KUBE_CONTEXT=kind-$(KIND) scripts/e2e.sh smoke
 
 bump: ## Bump to a T3 version: make bump V=0.1.10
 	python3 scripts/bump-t3.py $(V) && $(MAKE) docs

@@ -5,8 +5,13 @@
 #   scripts/e2e.sh smoke     helm test + API check + pairing + agent install
 #   scripts/e2e.sh debug     dump state
 #
-# Env: NS (default t3-e2e), RELEASE (default t3), IMAGE_REPO, IMAGE_TAG
+# Env: NS (default t3-e2e), RELEASE (default t3), IMAGE_REPO, IMAGE_TAG,
+#      KUBE_CONTEXT (default kind-t3: never the current context, which may be a real cluster)
 set -euo pipefail
+
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-t3}"
+kubectl() { command kubectl --context "$KUBE_CONTEXT" "$@"; }
+helm() { command helm --kube-context "$KUBE_CONTEXT" "$@"; }
 
 NS="${NS:-t3-e2e}"
 RELEASE="${RELEASE:-t3}"
