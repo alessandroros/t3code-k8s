@@ -3,7 +3,7 @@ name: t3code
 description: Self-host the T3 Code server (control plane for coding agents like Claude Code, Codex and OpenCode) on Kubernetes. Unofficial.
 type: application
 # Chart version: bumped automatically (patch) when appVersion changes.
-version: 0.1.0
+version: 0.1.1
 # T3 Code version (npm package `t3`). Single source of truth for the image tag.
 appVersion: "0.1.9"
 kubeVersion: ">=1.25.0-0"
