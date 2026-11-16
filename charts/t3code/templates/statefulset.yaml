@@ -120,8 +120,9 @@ spec:
               value: {{ .Values.t3.port | quote }}
             - name: T3_WORKSPACE
               value: {{ .Values.t3.workspaceDir | quote }}
+            # T3 parses the env var as a capitalized enum (Info, Warn, ...) without "warning".
             - name: T3CODE_LOG_LEVEL
-              value: {{ .Values.t3.logLevel | quote }}
+              value: {{ ternary "warn" .Values.t3.logLevel (eq .Values.t3.logLevel "warning") | title | quote }}
             - name: T3_PAIR_TTL
               value: {{ .Values.t3.pairTtl | quote }}
             {{- with $publicUrl }}

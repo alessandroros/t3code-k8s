@@ -134,6 +134,22 @@ tests:
             name: T3_PUBLIC_URL
             value: http://10.8.0.10
 
+  - it: passes the log level in the case T3 expects
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: T3CODE_LOG_LEVEL
+            value: Info
+  - it: maps log level "warning" to Warn
+    set:
+      t3.logLevel: warning
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: T3CODE_LOG_LEVEL
+            value: Warn
   - it: leaves telemetry unset by default and maps booleans
     asserts:
       - notContains:
