@@ -113,7 +113,10 @@ jobs:
         id: push
         run: |
           helm package "$CHART_DIR" -d dist
-          out=$(helm push "dist/t3code-${{ needs.meta.outputs.chart }}.tgz" "$CHART_REPO" 2>&1)
+          # Under `bash -e` a failing command substitution exits before echo: print the output either way.
+          if ! out=$(helm push "dist/t3code-${{ needs.meta.outputs.chart }}.tgz" "$CHART_REPO" 2>&1); then
+            echo "$out"; exit 1
+          fi
           echo "$out"
           digest=$(echo "$out" | awk '/^Digest:/{print $2}')
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
