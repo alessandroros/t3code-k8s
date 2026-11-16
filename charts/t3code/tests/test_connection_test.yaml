@@ -1,0 +1,17 @@
+suite: helm test pod
+templates:
+  - templates/tests/test-connection.yaml
+release:
+  name: t3
+  namespace: t3code
+tests:
+  - it: is not selected by the chart NetworkPolicy
+    asserts:
+      - notEqual:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: t3code
+  - it: survives success so helm test --logs can read it
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation
