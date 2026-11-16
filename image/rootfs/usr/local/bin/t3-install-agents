@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Install coding-agent CLIs onto the persistent home volume with npm.
+#
+# Agents are deliberately NOT baked into the image: they release almost daily
+# and most of them update themselves. Installing them on the home volume keeps
+# the image tied only to the T3 version.
+#
+# Environment:
+#   T3_AGENT_PACKAGES  Space/comma separated npm package specs, e.g.
+#                      "@anthropic-ai/claude-code @openai/codex"
+#   T3_AGENT_UPDATE    "missing" (default): install only packages not present.
+#                      "always": reinstall the requested spec on every start.
+#   T3_AGENT_STRICT    "true": exit non-zero if any install fails (default false).
+set -uo pipefail
+
+packages="${T3_AGENT_PACKAGES:-}"
+policy="${T3_AGENT_UPDATE:-missing}"
+strict="${T3_AGENT_STRICT:-false}"
+
+packages="${packages//,/ }"
+if [[ -z "${packages// /}" ]]; then
+  echo "t3-install-agents: no packages requested"
+  exit 0
+fi
+
+prefix="$(npm config get prefix)"
+mkdir -p "${prefix}/bin" "${prefix}/lib"
+echo "t3-install-agents: prefix=${prefix} policy=${policy}"
+
+# Strip a trailing @version from a spec, keeping a leading @scope.
+pkg_name() {
+  local spec="$1"
+  if [[ "$spec" == @*/* ]]; then
+    local scope="${spec%%/*}" rest="${spec#*/}"
+    echo "${scope}/${rest%%@*}"
+  else
+    echo "${spec%%@*}"
+  fi
+}
+
+failed=0
+for spec in ${packages}; do
+  name="$(pkg_name "$spec")"
+  if [[ "$policy" != "always" && -d "${prefix}/lib/node_modules/${name}" ]]; then
+    echo "t3-install-agents: ${name} already installed, skipping"
+    continue
+  fi
+  echo "t3-install-agents: installing ${spec}"
+  if ! npm install --global --no-audit --no-fund --loglevel=warn "${spec}"; then
+    echo "t3-install-agents: FAILED ${spec}" >&2
+    failed=$((failed + 1))
+  fi
+done
+
+if [[ $failed -gt 0 && "$strict" == "true" ]]; then
+  exit 1
+fi
+exit 0

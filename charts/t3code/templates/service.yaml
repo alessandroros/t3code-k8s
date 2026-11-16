@@ -1,0 +1,64 @@
+{{- $svc := .Values.service -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "t3code.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "t3code.labels" . | nindent 4 }}
+    {{- with $svc.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "t3code.annotations" (dict "root" . "extra" $svc.annotations) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+spec:
+  type: {{ $svc.type }}
+  {{- if eq $svc.type "LoadBalancer" }}
+  {{- with $svc.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerClass }}
+  loadBalancerClass: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  {{- if and (has $svc.type (list "LoadBalancer" "NodePort")) $svc.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ $svc.externalTrafficPolicy }}
+  {{- end }}
+  ports:
+    - name: http
+      port: {{ $svc.port }}
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
+      {{- if and (eq $svc.type "NodePort") $svc.nodePort }}
+      nodePort: {{ $svc.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "t3code.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "t3code.fullname" . }}-headless
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "t3code.labels" . | nindent 4 }}
+  {{- with include "t3code.annotations" (dict "root" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: {{ .Values.t3.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "t3code.selectorLabels" . | nindent 4 }}

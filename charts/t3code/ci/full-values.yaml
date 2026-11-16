@@ -1,0 +1,87 @@
+# Exercises every optional feature (used by ct lint/install and unit tests).
+commonLabels:
+  team: platform
+commonAnnotations:
+  owner: t3
+image:
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+t3:
+  publicUrl: https://t3.example.lan/
+  telemetry: false
+  extraArgs: ["--log-ws-events"]
+agents:
+  packages: ["@anthropic-ai/claude-code@latest", "opencode-ai"]
+  updatePolicy: always
+  strict: true
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+existingSecret: t3-agent-keys
+extraEnv:
+  - name: FOO
+    value: "{{ .Release.Name }}"
+extraEnvFrom:
+  - configMapRef:
+      name: extra-cm
+persistence:
+  home:
+    storageClass: "-"
+    annotations: {backup: "yes"}
+  workspace:
+    existingClaim: my-workspace
+service:
+  type: LoadBalancer
+  loadBalancerIP: 192.168.1.240
+  loadBalancerSourceRanges: [10.8.0.0/24]
+  externalTrafficPolicy: Local
+  annotations: {metallb.universe.tf/allow-shared-ip: t3}
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  hosts:
+    - host: t3.example.lan
+      paths: [{path: /, pathType: Prefix}]
+  tls:
+    - secretName: t3-tls
+      hosts: [t3.example.lan]
+route:
+  enabled: true
+  parentRefs: [{name: internal, namespace: gateway-system}]
+  hostnames: [t3.example.lan]
+networkPolicy:
+  enabled: true
+  ingress:
+    from:
+      - ipBlock: {cidr: 10.8.0.0/24}
+  egress:
+    extraTo:
+      - ipBlock: {cidr: 192.168.1.50/32}
+runtimeClassName: gvisor
+priorityClassName: high
+podAnnotations: {a: b}
+podLabels: {c: d}
+nodeSelector: {kubernetes.io/arch: arm64}
+tolerations: [{key: dedicated, operator: Exists, effect: NoSchedule}]
+hostAliases: [{ip: 192.168.1.50, hostnames: [git.lan]}]
+extraInitContainers:
+  - name: hello
+    image: busybox:1.37
+    command: ["true"]
+extraContainers:
+  - name: sidecar
+    image: busybox:1.37
+    command: ["sleep", "infinity"]
+extraVolumes:
+  - name: gitconfig
+    configMap: {name: gitconfig}
+extraVolumeMounts:
+  - name: gitconfig
+    mountPath: /home/t3/.gitconfig
+    subPath: .gitconfig
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: "{{ .Release.Name }}-extra"
+    data: {k: v}

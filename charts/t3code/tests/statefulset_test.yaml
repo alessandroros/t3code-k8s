@@ -1,0 +1,182 @@
+suite: statefulset
+templates:
+  - templates/statefulset.yaml
+release:
+  name: t3
+  namespace: t3code
+tests:
+  - it: runs exactly one replica with the appVersion image
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.serviceName
+          value: t3-t3code-headless
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/alessandroros/t3code:\d+\.\d+\.\d+.*$
+
+  - it: prefers digest over tag
+    set:
+      image.tag: "9.9.9"
+      image.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/alessandroros/t3code@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  - it: is secure by default
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: false
+
+  - it: installs agents with an initContainer by default
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: install-agents
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: T3_AGENT_PACKAGES
+            value: "@anthropic-ai/claude-code @openai/codex"
+
+  - it: skips the agent initContainer when disabled
+    set:
+      agents.install: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+
+  - it: creates both PVC templates by default
+    asserts:
+      - lengthEqual:
+          path: spec.volumeClaimTemplates
+          count: 2
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 20Gi
+      - notExists:
+          path: spec.volumeClaimTemplates[0].spec.storageClassName
+
+  - it: uses existing claims and storageClass "-"
+    set:
+      persistence.home.storageClass: "-"
+      persistence.workspace.existingClaim: my-ws
+    asserts:
+      - lengthEqual:
+          path: spec.volumeClaimTemplates
+          count: 1
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.storageClassName
+          value: ""
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: workspace
+            persistentVolumeClaim:
+              claimName: my-ws
+
+  - it: falls back to emptyDir when persistence is disabled
+    set:
+      persistence.home.enabled: false
+      persistence.workspace.enabled: false
+    asserts:
+      - notExists:
+          path: spec.volumeClaimTemplates
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: home
+            emptyDir: {}
+
+  - it: derives the public URL from a TLS ingress
+    set:
+      ingress.enabled: true
+      ingress.hosts:
+        - host: t3.lan
+          paths:
+            - path: /
+      ingress.tls:
+        - secretName: tls
+          hosts: [t3.lan]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: T3_PUBLIC_URL
+            value: https://t3.lan
+
+  - it: explicit public URL wins and loses its trailing slash
+    set:
+      t3.publicUrl: http://10.8.0.10/
+      ingress.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: T3_PUBLIC_URL
+            value: http://10.8.0.10
+
+  - it: leaves telemetry unset by default and maps booleans
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: T3CODE_TELEMETRY_ENABLED
+  - it: maps telemetry false to 0
+    set:
+      t3.telemetry: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: T3CODE_TELEMETRY_ENABLED
+            value: "0"
+
+  - it: loads the existing secret and templated extra env
+    set:
+      existingSecret: keys
+      extraEnv:
+        - name: REL
+          value: "{{ .Release.Name }}"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: keys
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REL
+            value: t3
+
+  - it: disables probes individually
+    set:
+      livenessProbe.enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].livenessProbe
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /api/auth/session
+      - notExists:
+          path: spec.template.spec.containers[0].readinessProbe.enabled

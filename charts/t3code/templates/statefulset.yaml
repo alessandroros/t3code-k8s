@@ -1,0 +1,276 @@
+{{- $fullname := include "t3code.fullname" . -}}
+{{- $home := .Values.persistence.home -}}
+{{- $ws := .Values.persistence.workspace -}}
+{{- $publicUrl := include "t3code.publicUrl" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "t3code.labels" . | nindent 4 }}
+  {{- with include "t3code.annotations" (dict "root" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+spec:
+  # The T3 server is stateful (SQLite, WebSockets, terminals, provider sessions).
+  # It runs exactly one replica; this is not configurable on purpose.
+  replicas: 1
+  serviceName: {{ $fullname }}-headless
+  podManagementPolicy: OrderedReady
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.persistentVolumeClaimRetentionPolicy }}
+  persistentVolumeClaimRetentionPolicy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "t3code.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "t3code.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "t3code.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or (and .Values.agents.install .Values.agents.packages) .Values.extraInitContainers }}
+      initContainers:
+        {{- if and .Values.agents.install .Values.agents.packages }}
+        - name: install-agents
+          image: {{ include "t3code.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/t3-install-agents"]
+          env:
+            - name: T3_AGENT_PACKAGES
+              value: {{ join " " .Values.agents.packages | quote }}
+            - name: T3_AGENT_UPDATE
+              value: {{ .Values.agents.updatePolicy | quote }}
+            - name: T3_AGENT_STRICT
+              value: {{ .Values.agents.strict | quote }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.agents.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: home
+              mountPath: /home/t3
+            {{- if .Values.tmpVolume.enabled }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+        {{- end }}
+        {{- with .Values.extraInitContainers }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: t3code
+          image: {{ include "t3code.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.t3.extraArgs }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.t3.port }}
+              protocol: TCP
+          env:
+            - name: T3CODE_HOME
+              value: /home/t3/.t3
+            - name: T3CODE_PORT
+              value: {{ .Values.t3.port | quote }}
+            - name: T3_WORKSPACE
+              value: {{ .Values.t3.workspaceDir | quote }}
+            - name: T3CODE_LOG_LEVEL
+              value: {{ .Values.t3.logLevel | quote }}
+            - name: T3_PAIR_TTL
+              value: {{ .Values.t3.pairTtl | quote }}
+            {{- with $publicUrl }}
+            - name: T3_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.t3.telemetry) }}
+            - name: T3CODE_TELEMETRY_ENABLED
+              value: {{ ternary "1" "0" .Values.t3.telemetry | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.existingSecret .Values.extraEnvFrom }}
+          envFrom:
+            {{- with .Values.existingSecret }}
+            - secretRef:
+                name: {{ tpl . $ }}
+            {{- end }}
+            {{- with .Values.extraEnvFrom }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            {{- include "t3code.probe" .Values.startupProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            {{- include "t3code.probe" .Values.livenessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            {{- include "t3code.probe" .Values.readinessProbe | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: home
+              mountPath: /home/t3
+            - name: workspace
+              mountPath: /workspace
+            {{- if .Values.tmpVolume.enabled }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+            {{- if .Values.shm.enabled }}
+            - name: dshm
+              mountPath: /dev/shm
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
+            {{- end }}
+        {{- with .Values.extraContainers }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+      volumes:
+        {{- if not $home.enabled }}
+        - name: home
+          emptyDir: {}
+        {{- else if $home.existingClaim }}
+        - name: home
+          persistentVolumeClaim:
+            claimName: {{ tpl $home.existingClaim $ }}
+        {{- end }}
+        {{- if not $ws.enabled }}
+        - name: workspace
+          emptyDir: {}
+        {{- else if $ws.existingClaim }}
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ tpl $ws.existingClaim $ }}
+        {{- end }}
+        {{- if .Values.tmpVolume.enabled }}
+        - name: tmp
+          emptyDir:
+            {{- with .Values.tmpVolume.sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        {{- end }}
+        {{- if .Values.shm.enabled }}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            {{- with .Values.shm.sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- $homeTpl := and $home.enabled (not $home.existingClaim) }}
+  {{- $wsTpl := and $ws.enabled (not $ws.existingClaim) }}
+  {{- if or $homeTpl $wsTpl }}
+  volumeClaimTemplates:
+    {{- if $homeTpl }}
+    - metadata:
+        name: home
+        labels:
+          {{- include "t3code.selectorLabels" . | nindent 10 }}
+        {{- with $home.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml $home.accessModes | nindent 10 }}
+        {{- with include "t3code.storageClass" $home.storageClass }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $home.size | quote }}
+    {{- end }}
+    {{- if $wsTpl }}
+    - metadata:
+        name: workspace
+        labels:
+          {{- include "t3code.selectorLabels" . | nindent 10 }}
+        {{- with $ws.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml $ws.accessModes | nindent 10 }}
+        {{- with include "t3code.storageClass" $ws.storageClass }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $ws.size | quote }}
+    {{- end }}
+  {{- end }}

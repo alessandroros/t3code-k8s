@@ -1,0 +1,56 @@
+T3 Code {{ .Chart.AppVersion }} is starting as {{ include "t3code.fullname" . }} in namespace {{ .Release.Namespace }}.
+{{- $pod := printf "%s-0" (include "t3code.fullname" .) }}
+{{- $url := include "t3code.publicUrl" . }}
+
+1. Wait for the pod. The first start installs the agent CLIs on the home volume:
+
+     kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "t3code.fullname" . }}
+     kubectl -n {{ .Release.Namespace }} logs {{ $pod }} -c install-agents
+
+2. Reach the server:
+{{- if $url }}
+
+     {{ $url }}
+{{- else if eq .Values.service.type "LoadBalancer" }}
+
+     kubectl -n {{ .Release.Namespace }} get svc {{ include "t3code.fullname" . }}
+     # open http://<EXTERNAL-IP>{{ if ne (int .Values.service.port) 80 }}:{{ .Values.service.port }}{{ end }} and set t3.publicUrl to it
+{{- else }}
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "t3code.fullname" . }} 3773:{{ .Values.service.port }}
+     # then open http://localhost:3773
+{{- end }}
+
+3. Pair a device (one-time link, expires in {{ .Values.t3.pairTtl }}; treat it like a password):
+
+     kubectl -n {{ .Release.Namespace }} exec -it {{ $pod }} -c t3code -- t3-pair --label my-laptop
+{{- if not $url }}
+     # tip: set t3.publicUrl so the printed link uses your real address
+{{- end }}
+
+   Manage access:
+     kubectl -n {{ .Release.Namespace }} exec -it {{ $pod }} -c t3code -- t3 auth session list
+     kubectl -n {{ .Release.Namespace }} exec -it {{ $pod }} -c t3code -- t3 auth session revoke <id>
+
+4. Sign in the agents once (logins persist on the home volume):
+
+     kubectl -n {{ .Release.Namespace }} exec -it {{ $pod }} -c t3code -- claude auth login
+     kubectl -n {{ .Release.Namespace }} exec -it {{ $pod }} -c t3code -- codex login
+{{- if not .Values.existingSecret }}
+   (or put API keys/tokens in a Secret and set existingSecret)
+{{- end }}
+{{- if and (not .Values.ingress.enabled) (not .Values.route.enabled) (ne .Values.service.type "ClusterIP") }}
+
+WARNING: the service is exposed as {{ .Values.service.type }} over plain HTTP. Only do this on a
+private network (VPN/LAN) and restrict it with service.loadBalancerSourceRanges or networkPolicy.
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+NOTE: networkPolicy is disabled. Agents can reach every service in your cluster and LAN.
+      Consider networkPolicy.enabled=true (see docs/security.md).
+{{- end }}
+{{- if or (not .Values.persistence.home.enabled) (not .Values.persistence.workspace.enabled) }}
+
+WARNING: persistence is disabled for at least one volume. Threads, logins or repositories
+         will be lost when the pod restarts.
+{{- end }}

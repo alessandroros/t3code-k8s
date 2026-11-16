@@ -1,0 +1,111 @@
+name: upstream-watch
+
+# Polls the npm package `t3` for a new stable T3 Code release and opens a PR
+# that bumps Chart.yaml (appVersion + chart version). With auto-merge enabled
+# and required CI checks on main, the PR merges itself once e2e passes, and
+# the release workflow publishes image + chart.
+#
+# Needs a token that can trigger workflows: PRs opened with the default
+# GITHUB_TOKEN do NOT run CI. Create a fine-grained PAT (or GitHub App token)
+# with contents+pull-requests write on this repo and store it as BOT_TOKEN.
+
+on:
+  schedule:
+    - cron: "23 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Force a specific T3 version (X.Y.Z)
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      HAS_BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.BOT_TOKEN || github.token }}
+
+      - name: Latest stable T3 on npm
+        id: npm
+        run: |
+          v="${{ inputs.version }}"
+          [ -n "$v" ] || v=$(npm view t3@latest version)
+          echo "latest=$v" >> "$GITHUB_OUTPUT"
+          echo "npm latest: $v"
+
+      - name: Bump Chart.yaml
+        id: bump
+        run: |
+          set +e
+          out=$(python3 scripts/bump-t3.py "${{ steps.npm.outputs.latest }}")
+          rc=$?
+          set -e
+          if [ $rc -eq 3 ]; then echo "up to date"; echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          [ $rc -eq 0 ] || exit $rc
+          read -r old_app new_app old_chart new_chart <<<"$out"
+          {
+            echo "changed=true"
+            echo "old_app=$old_app"; echo "new_app=$new_app"
+            echo "old_chart=$old_chart"; echo "new_chart=$new_chart"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Release assets exist
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          v="${{ steps.bump.outputs.new_app }}"
+          base="https://github.com/pingdotgg/t3code/releases/download/v$v"
+          curl -fsSL "$base/SHA256SUMS" -o SHA256SUMS
+          for a in linux-x64 linux-arm64; do
+            grep -q "t3-$v-$a.tar.gz" SHA256SUMS || { echo "missing $a asset for $v, retry later"; exit 1; }
+          done
+          rm SHA256SUMS
+
+      - name: Regenerate chart README
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          docker run --rm -v "$PWD:/helm-docs" -u "$(id -u)" jnorwood/helm-docs:v1.14.2 \
+            --chart-search-root charts --template-files README.md.gotmpl
+
+      - name: Open PR
+        if: steps.bump.outputs.changed == 'true'
+        id: pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.BOT_TOKEN || github.token }}
+          branch: upstream/t3-${{ steps.bump.outputs.new_app }}
+          delete-branch: true
+          commit-message: "feat: update T3 Code to ${{ steps.bump.outputs.new_app }}"
+          title: "feat: update T3 Code to ${{ steps.bump.outputs.new_app }}"
+          labels: upstream, automerge
+          body: |
+            T3 Code `${{ steps.bump.outputs.old_app }}` → `${{ steps.bump.outputs.new_app }}`
+            Chart `${{ steps.bump.outputs.old_chart }}` → `${{ steps.bump.outputs.new_chart }}`
+
+            Release notes: https://github.com/pingdotgg/t3code/releases/tag/v${{ steps.bump.outputs.new_app }}
+
+            Opened by `upstream-watch`. Merges automatically when CI (lint, unit tests, e2e on kind) passes.
+            A minor/major T3 bump also bumps the chart minor: review those by hand.
+
+      - name: Enable auto-merge (patch bumps only)
+        if: steps.pr.outputs.pull-request-number && env.HAS_BOT_TOKEN == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+          OLD: ${{ steps.bump.outputs.old_app }}
+          NEW: ${{ steps.bump.outputs.new_app }}
+        run: |
+          if [ "${OLD%.*}" = "${NEW%.*}" ]; then
+            gh pr merge "${{ steps.pr.outputs.pull-request-number }}" --auto --squash
+          else
+            echo "minor/major T3 change: leaving PR for manual review"
+          fi

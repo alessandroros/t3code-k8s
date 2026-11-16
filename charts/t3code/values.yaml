@@ -1,0 +1,318 @@
+# Default values for t3code.
+# Comments starting with "# --" are rendered into README.md by helm-docs.
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full resource name
+fullnameOverride: ""
+# -- Labels added to every resource
+commonLabels: {}
+# -- Annotations added to every resource
+commonAnnotations: {}
+
+image:
+  # -- Image registry
+  registry: ghcr.io
+  # -- Image repository
+  repository: alessandroros/t3code
+  # -- Image tag. Defaults to the chart appVersion (= T3 Code version)
+  tag: ""
+  # -- Image digest (`sha256:...`). Overrides the tag when set
+  digest: ""
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets
+imagePullSecrets: []
+
+t3:
+  # -- Container port of the T3 HTTP/WebSocket server
+  port: 3773
+  # -- Public URL clients use to reach the server (e.g. `https://t3.home.lan`).
+  # Used to print correct pairing links (`t3-pair`). Leave empty to derive it from
+  # `ingress`/`route` when enabled.
+  publicUrl: ""
+  # -- Working directory for provider sessions (inside the workspace volume)
+  workspaceDir: /workspace
+  # -- Log level (`trace`, `debug`, `info`, `warn`, `error`)
+  logLevel: info
+  # -- Set `T3CODE_TELEMETRY_ENABLED`. `null` keeps the upstream default
+  telemetry: null
+  # -- Default TTL of pairing links created with `t3-pair`
+  pairTtl: 10m
+  # -- Extra arguments appended to `t3 serve`
+  extraArgs: []
+
+agents:
+  # -- Install coding-agent CLIs onto the home volume with an initContainer.
+  # Agents are not baked into the image: they release almost daily and most
+  # update themselves.
+  install: true
+  # -- npm package specs to install (pin with `@version` if you want).
+  # T3 also uses Codex for thread titles unless you switch the title provider.
+  packages:
+    - "@anthropic-ai/claude-code"
+    - "@openai/codex"
+    # - opencode-ai
+  # -- `missing`: install only absent packages (agents self-update).
+  # `always`: reinstall the requested spec on every pod start.
+  updatePolicy: missing
+  # -- Fail the pod start if an install fails
+  strict: false
+  # -- Resources for the install initContainer
+  resources: {}
+
+# -- Name of an existing Secret loaded as environment variables (e.g.
+# `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `GH_TOKEN`).
+# Not needed if you sign agents in interactively: logins persist on the home volume.
+existingSecret: ""
+
+# -- Extra environment variables (list of EnvVar)
+extraEnv: []
+# -- Extra envFrom sources (list of EnvFromSource)
+extraEnvFrom: []
+
+persistence:
+  home:
+    # -- Persist /home/t3: T3 state (SQLite), provider logins, agents, caches.
+    # Disabling it loses everything on restart.
+    enabled: true
+    # -- Use an existing PVC
+    existingClaim: ""
+    # -- StorageClass (`-` for none, empty for cluster default). Avoid NFS: T3 uses SQLite
+    storageClass: ""
+    # -- Access modes
+    accessModes:
+      - ReadWriteOnce
+    # -- Size
+    size: 20Gi
+    # -- PVC annotations
+    annotations: {}
+  workspace:
+    # -- Persist /workspace: your repositories (one project per git checkout)
+    enabled: true
+    # -- Use an existing PVC
+    existingClaim: ""
+    # -- StorageClass (`-` for none, empty for cluster default)
+    storageClass: ""
+    # -- Access modes
+    accessModes:
+      - ReadWriteOnce
+    # -- Size
+    size: 50Gi
+    # -- PVC annotations
+    annotations: {}
+
+# -- What happens to the PVCs when the StatefulSet is deleted or scaled
+# (`Retain` keeps your data on `helm uninstall`)
+persistentVolumeClaimRetentionPolicy:
+  whenDeleted: Retain
+  whenScaled: Retain
+
+shm:
+  # -- Mount a memory-backed /dev/shm (needed by T3's headless browser)
+  enabled: true
+  # -- Size limit (counts against the memory limit)
+  sizeLimit: 1Gi
+
+# -- Mount an emptyDir on /tmp
+tmpVolume:
+  enabled: true
+  sizeLimit: 5Gi
+
+serviceAccount:
+  # -- Create a ServiceAccount
+  create: true
+  # -- ServiceAccount name (generated if empty)
+  name: ""
+  # -- ServiceAccount annotations
+  annotations: {}
+  # -- Mount the ServiceAccount token. Keep false: agents run arbitrary commands
+  # and must not talk to the Kubernetes API.
+  automountServiceAccountToken: false
+
+# -- Pod security context
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container security context (Pod Security "restricted" compatible)
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# -- Resources. The server is light; agents, builds and tests are not.
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    memory: 6Gi
+
+# -- Startup probe
+startupProbe:
+  enabled: true
+  httpGet:
+    path: /api/auth/session
+    port: http
+  periodSeconds: 5
+  failureThreshold: 60
+# -- Liveness probe
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /api/auth/session
+    port: http
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 5
+# -- Readiness probe
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /api/auth/session
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# -- Grace period. Restarting stops running agent turns.
+terminationGracePeriodSeconds: 60
+
+# -- StatefulSet update strategy
+updateStrategy:
+  type: RollingUpdate
+
+service:
+  # -- Service type (`LoadBalancer` with an internal IP is handy for VPN access)
+  type: ClusterIP
+  # -- Service port
+  port: 80
+  # -- NodePort (type NodePort only)
+  nodePort: null
+  # -- Load balancer IP (if supported)
+  loadBalancerIP: ""
+  # -- Load balancer class
+  loadBalancerClass: ""
+  # -- Allowed source ranges for type LoadBalancer
+  loadBalancerSourceRanges: []
+  # -- External traffic policy (`Local` preserves client IPs)
+  externalTrafficPolicy: ""
+  # -- Service annotations
+  annotations: {}
+  # -- Service labels
+  labels: {}
+
+ingress:
+  # -- Enable an Ingress. Long-lived WebSockets: raise your controller's timeouts
+  enabled: false
+  # -- IngressClass name
+  className: ""
+  # -- Ingress annotations
+  annotations: {}
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # nginx.ingress.kubernetes.io/proxy-body-size: 50m
+  # -- Hosts
+  hosts:
+    - host: t3code.example.lan
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS
+  tls: []
+  #  - secretName: t3code-tls
+  #    hosts:
+  #      - t3code.example.lan
+
+route:
+  # -- Enable a Gateway API HTTPRoute
+  enabled: false
+  # -- Route annotations
+  annotations: {}
+  # -- Gateways to attach to
+  parentRefs: []
+  # - name: internal-gateway
+  #   namespace: gateway-system
+  #   sectionName: https
+  # -- Hostnames
+  hostnames: []
+  # -- Extra rule matches (default: all paths)
+  matches:
+    - path:
+        type: PathPrefix
+        value: /
+  # -- Filters
+  filters: []
+
+networkPolicy:
+  # -- Create a NetworkPolicy (needs a CNI that enforces it)
+  enabled: false
+  ingress:
+    # -- Allowed sources for the T3 port. Empty = any source.
+    # Typically your ingress controller namespace and/or your VPN CIDR.
+    from: []
+    # - namespaceSelector:
+    #     matchLabels:
+    #       kubernetes.io/metadata.name: ingress-nginx
+    # - ipBlock:
+    #     cidr: 10.8.0.0/24
+  egress:
+    # -- Restrict egress: allow DNS and the public internet, deny private ranges
+    # (cluster pods/services, LAN) so agents cannot reach the rest of your cluster
+    restrict: true
+    # -- Ranges denied when `restrict` is true
+    deniedCidrs:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 100.64.0.0/10
+      - 169.254.0.0/16
+      - fc00::/7
+      - fe80::/10
+    # -- Extra allowed destinations (e.g. an internal git server or proxy)
+    extraTo: []
+    # - ipBlock:
+    #     cidr: 192.168.1.50/32
+
+# -- RuntimeClass (e.g. `gvisor` or `kata` for stronger sandboxing of agents)
+runtimeClassName: ""
+# -- Priority class
+priorityClassName: ""
+# -- Pod annotations
+podAnnotations: {}
+# -- Pod labels
+podLabels: {}
+# -- Node selector
+nodeSelector: {}
+# -- Tolerations
+tolerations: []
+# -- Affinity
+affinity: {}
+# -- Host aliases
+hostAliases: []
+# -- DNS config
+dnsConfig: {}
+
+# -- Extra init containers
+extraInitContainers: []
+# -- Extra sidecar containers
+extraContainers: []
+# -- Extra volumes
+extraVolumes: []
+# -- Extra volume mounts for the t3 container
+extraVolumeMounts: []
+# -- Extra Kubernetes objects to deploy (templated)
+extraObjects: []
+
+tests:
+  # -- Image for `helm test`
+  image: curlimages/curl:8.11.1

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Start the T3 Code server in headless mode.
+#
+# Environment:
+#   T3CODE_HOME       T3 data dir (state, auth, sqlite). Default /home/t3/.t3
+#   T3CODE_PORT       HTTP/WebSocket port. Default 3773
+#   T3_WORKSPACE      Working directory for provider sessions. Default /workspace
+#   T3_INSTALL_AGENTS If "true", run t3-install-agents before starting (useful
+#                     outside Kubernetes; the Helm chart uses an initContainer).
+#   T3_EXTRA_ARGS     Extra arguments appended to `t3 serve` (word-split).
+#
+# Any arguments passed to the container are appended to `t3 serve` too.
+set -euo pipefail
+
+: "${T3CODE_HOME:=/home/t3/.t3}"
+: "${T3CODE_PORT:=3773}"
+: "${T3_WORKSPACE:=/workspace}"
+
+mkdir -p "${T3CODE_HOME}" "${T3_WORKSPACE}" "${HOME}/.local/bin"
+
+if [[ "${T3_INSTALL_AGENTS:-false}" == "true" ]]; then
+  /usr/local/bin/t3-install-agents || echo "t3-entrypoint: agent install failed, starting anyway" >&2
+fi
+
+# Allow `docker run image <cmd>` to run another command (e.g. bash, t3 pair).
+if [[ $# -gt 0 && "$1" != -* ]]; then
+  exec "$@"
+fi
+
+# shellcheck disable=SC2206
+extra=( ${T3_EXTRA_ARGS:-} )
+
+exec t3 serve \
+  --host 0.0.0.0 \
+  --port "${T3CODE_PORT}" \
+  --base-dir "${T3CODE_HOME}" \
+  --no-browser \
+  "${extra[@]}" "$@" \
+  "${T3_WORKSPACE}"

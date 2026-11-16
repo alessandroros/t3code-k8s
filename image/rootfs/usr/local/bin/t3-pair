@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Create a one-time pairing link for a new device.
+#
+# Uses T3_PUBLIC_URL (set by the Helm chart from t3.publicUrl) so the printed
+# link points at the address you actually reach (Ingress/LB/VPN), not the pod IP.
+#
+#   kubectl exec -it t3code-0 -- t3-pair --label my-laptop
+#   kubectl exec -it t3code-0 -- t3-pair --ttl 15m
+#
+# Extra arguments are passed to `t3 auth pairing create`.
+set -euo pipefail
+
+args=( auth pairing create --ttl "${T3_PAIR_TTL:-10m}" )
+if [[ -n "${T3_PUBLIC_URL:-}" ]]; then
+  args+=( --base-url "${T3_PUBLIC_URL%/}" )
+else
+  echo "t3-pair: T3_PUBLIC_URL is not set; the link will show the token only." >&2
+  echo "t3-pair: set t3.publicUrl in the Helm values, or pass --base-url https://your-host" >&2
+fi
+
+exec t3 "${args[@]}" "$@"

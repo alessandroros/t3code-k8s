@@ -1,0 +1,139 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHART_DIR: charts/t3code
+  HELM_VERSION: v3.19.0
+
+jobs:
+  chart-lint:
+    name: chart lint, docs, unit tests, schemas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: helm lint (default + ci values)
+        run: |
+          helm lint "$CHART_DIR" --strict
+          for f in "$CHART_DIR"/ci/*.yaml; do helm lint "$CHART_DIR" --strict -f "$f"; done
+
+      - name: chart version bumped
+        if: github.event_name == 'pull_request'
+        run: |
+          base="origin/${{ github.base_ref }}"
+          if git diff --quiet "$base"...HEAD -- "$CHART_DIR"; then
+            echo "chart unchanged"; exit 0
+          fi
+          old=$(git show "$base:$CHART_DIR/Chart.yaml" | awk '/^version:/{print $2}')
+          new=$(awk '/^version:/{print $2}' "$CHART_DIR/Chart.yaml")
+          echo "chart version: $old -> $new"
+          if [ "$old" = "$new" ]; then
+            echo "::error file=$CHART_DIR/Chart.yaml::chart changed but version was not bumped"; exit 1
+          fi
+
+      - name: helm-docs up to date
+        run: |
+          docker run --rm -v "$PWD:/helm-docs" -u "$(id -u)" jnorwood/helm-docs:v1.14.2 \
+            --chart-search-root charts --template-files README.md.gotmpl
+          git diff --exit-code -- "$CHART_DIR/README.md" || {
+            echo "::error::README.md is stale: run 'make docs' and commit"; exit 1; }
+
+      - name: helm-unittest
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.0.3
+          helm unittest --strict "$CHART_DIR"
+
+      - name: kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C /usr/local/bin kubeconform
+          for kv in 1.29.0 1.33.0; do
+            for f in "" "$CHART_DIR"/ci/*.yaml; do
+              echo "== k8s $kv values=${f:-default}"
+              helm template t3 "$CHART_DIR" ${f:+-f "$f"} \
+                | kubeconform -strict -summary -kubernetes-version "$kv" \
+                    -schema-location default \
+                    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            done
+          done
+
+  image-lint:
+    name: image lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: image/Dockerfile
+          failure-threshold: warning
+          ignore: DL3008,DL4006
+      - name: shellcheck
+        run: shellcheck image/rootfs/usr/local/bin/* scripts/*.sh
+
+  e2e:
+    name: e2e on kind (k8s ${{ matrix.k8s }})
+    needs: [chart-lint, image-lint]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s: [v1.29.14, v1.33.1]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Read T3 version
+        id: v
+        run: echo "t3=$(awk -F'"' '/^appVersion:/{print $2}' "$CHART_DIR/Chart.yaml")" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: image
+          load: true
+          tags: t3code-ci:ci
+          build-args: T3_VERSION=${{ steps.v.outputs.t3 }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: helm/kind-action@v1
+        with:
+          node_image: kindest/node:${{ matrix.k8s }}
+          cluster_name: t3
+
+      - name: Load image
+        run: kind load docker-image t3code-ci:ci --name t3
+
+      - name: Install chart (restricted Pod Security, NetworkPolicy on)
+        run: scripts/e2e.sh install
+
+      - name: Smoke test
+        run: scripts/e2e.sh smoke
+
+      - name: Debug on failure
+        if: failure()
+        run: scripts/e2e.sh debug

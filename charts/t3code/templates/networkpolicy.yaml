@@ -1,0 +1,61 @@
+{{- if .Values.networkPolicy.enabled -}}
+{{- $np := .Values.networkPolicy -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "t3code.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "t3code.labels" . | nindent 4 }}
+  {{- with include "t3code.annotations" (dict "root" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "t3code.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    {{- if $np.egress.restrict }}
+    - Egress
+    {{- end }}
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+      {{- with $np.ingress.from }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if $np.egress.restrict }}
+  egress:
+    # DNS (any resolver, including cluster DNS in private ranges)
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- with $np.egress.extraTo }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    # Public internet only
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- $v4 := list }}
+            {{- range $np.egress.deniedCidrs }}{{- if not (contains ":" .) }}{{- $v4 = append $v4 . }}{{- end }}{{- end }}
+            {{- with $v4 }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+        - ipBlock:
+            cidr: ::/0
+            {{- $v6 := list }}
+            {{- range $np.egress.deniedCidrs }}{{- if contains ":" . }}{{- $v6 = append $v6 . }}{{- end }}{{- end }}
+            {{- with $v6 }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+  {{- end }}
+{{- end }}

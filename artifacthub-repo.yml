@@ -1,0 +1,7 @@
+# Artifact Hub repository metadata, pushed to
+# oci://ghcr.io/alessandroros/charts/t3code:artifacthub.io by the release workflow.
+# Fill repositoryID after adding the repository on artifacthub.io, then republish.
+repositoryID: ""
+owners:
+  - name: Alessandro Rosà
+    email: ""

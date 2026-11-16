@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  # Base images (node/debian). T3 itself is tracked by upstream-watch.yaml.
+  - package-ecosystem: docker
+    directory: /image
+    schedule:
+      interval: weekly

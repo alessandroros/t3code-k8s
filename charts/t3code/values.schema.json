@@ -1,0 +1,233 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "t3code chart values",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "anyList": { "type": "array" },
+    "anyObject": { "type": "object" },
+    "quantity": { "type": ["string", "integer", "number"] },
+    "probe": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } },
+      "required": ["enabled"]
+    },
+    "pvc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "existingClaim": { "type": "string" },
+        "storageClass": { "type": "string" },
+        "accessModes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany", "ReadWriteOncePod"] }
+        },
+        "size": { "$ref": "#/definitions/quantity" },
+        "annotations": { "$ref": "#/definitions/stringMap" }
+      }
+    }
+  },
+  "properties": {
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "commonLabels": { "$ref": "#/definitions/stringMap" },
+    "commonAnnotations": { "$ref": "#/definitions/stringMap" },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "registry": { "type": "string" },
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": ["string", "number"] },
+        "digest": { "type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "imagePullSecrets": { "$ref": "#/definitions/anyList" },
+    "t3": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "publicUrl": { "type": "string", "pattern": "^$|^https?://" },
+        "workspaceDir": { "type": "string", "pattern": "^/workspace(/.*)?$" },
+        "logLevel": { "enum": ["all", "trace", "debug", "info", "warn", "warning", "error", "fatal", "none"] },
+        "telemetry": { "type": ["boolean", "null"] },
+        "pairTtl": { "type": "string" },
+        "extraArgs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "install": { "type": "boolean" },
+        "packages": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "updatePolicy": { "enum": ["missing", "always"] },
+        "strict": { "type": "boolean" },
+        "resources": { "$ref": "#/definitions/anyObject" }
+      }
+    },
+    "existingSecret": { "type": "string" },
+    "extraEnv": { "$ref": "#/definitions/anyList" },
+    "extraEnvFrom": { "$ref": "#/definitions/anyList" },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "home": { "$ref": "#/definitions/pvc" },
+        "workspace": { "$ref": "#/definitions/pvc" }
+      }
+    },
+    "persistentVolumeClaimRetentionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "whenDeleted": { "enum": ["Retain", "Delete"] },
+        "whenScaled": { "enum": ["Retain", "Delete"] }
+      }
+    },
+    "shm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "sizeLimit": { "$ref": "#/definitions/quantity" }
+      }
+    },
+    "tmpVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "sizeLimit": { "$ref": "#/definitions/quantity" }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "$ref": "#/definitions/stringMap" },
+        "automountServiceAccountToken": { "type": "boolean" }
+      }
+    },
+    "podSecurityContext": { "$ref": "#/definitions/anyObject" },
+    "containerSecurityContext": { "$ref": "#/definitions/anyObject" },
+    "resources": { "$ref": "#/definitions/anyObject" },
+    "startupProbe": { "$ref": "#/definitions/probe" },
+    "livenessProbe": { "$ref": "#/definitions/probe" },
+    "readinessProbe": { "$ref": "#/definitions/probe" },
+    "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+    "updateStrategy": {
+      "type": "object",
+      "properties": { "type": { "enum": ["RollingUpdate", "OnDelete"] } }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "nodePort": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 },
+        "loadBalancerIP": { "type": "string" },
+        "loadBalancerClass": { "type": "string" },
+        "loadBalancerSourceRanges": { "type": "array", "items": { "type": "string" } },
+        "externalTrafficPolicy": { "enum": ["", "Cluster", "Local"] },
+        "annotations": { "$ref": "#/definitions/stringMap" },
+        "labels": { "$ref": "#/definitions/stringMap" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "$ref": "#/definitions/stringMap" },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["host", "paths"],
+            "properties": {
+              "host": { "type": "string" },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path"],
+                  "properties": {
+                    "path": { "type": "string" },
+                    "pathType": { "enum": ["Prefix", "Exact", "ImplementationSpecific"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": { "$ref": "#/definitions/anyList" }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "annotations": { "$ref": "#/definitions/stringMap" },
+        "parentRefs": { "$ref": "#/definitions/anyList" },
+        "hostnames": { "type": "array", "items": { "type": "string" } },
+        "matches": { "$ref": "#/definitions/anyList" },
+        "filters": { "$ref": "#/definitions/anyList" }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "from": { "$ref": "#/definitions/anyList" } }
+        },
+        "egress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "restrict": { "type": "boolean" },
+            "deniedCidrs": { "type": "array", "items": { "type": "string" } },
+            "extraTo": { "$ref": "#/definitions/anyList" }
+          }
+        }
+      }
+    },
+    "runtimeClassName": { "type": "string" },
+    "priorityClassName": { "type": "string" },
+    "podAnnotations": { "$ref": "#/definitions/stringMap" },
+    "podLabels": { "$ref": "#/definitions/stringMap" },
+    "nodeSelector": { "$ref": "#/definitions/stringMap" },
+    "tolerations": { "$ref": "#/definitions/anyList" },
+    "affinity": { "$ref": "#/definitions/anyObject" },
+    "hostAliases": { "$ref": "#/definitions/anyList" },
+    "dnsConfig": { "$ref": "#/definitions/anyObject" },
+    "extraInitContainers": { "$ref": "#/definitions/anyList" },
+    "extraContainers": { "$ref": "#/definitions/anyList" },
+    "extraVolumes": { "$ref": "#/definitions/anyList" },
+    "extraVolumeMounts": { "$ref": "#/definitions/anyList" },
+    "extraObjects": { "$ref": "#/definitions/anyList" },
+    "tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "image": { "type": "string" } }
+    },
+    "global": { "type": "object" }
+  }
+}
