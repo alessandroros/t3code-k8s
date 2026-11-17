@@ -1,0 +1,38 @@
+name: dependabot-automerge
+
+# Enables auto-merge on Dependabot PRs (GitHub Actions and base images) for
+# patch and minor updates. The PR still merges only after the required CI checks
+# pass (branch protection). Major updates (e.g. node:22 -> node:24) stay manual.
+#
+# Merges done with GITHUB_TOKEN do not trigger push workflows on main: base-image
+# updates reach the published image with the weekly release rebuild.
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'alessandroros/t3code-k8s'
+    runs-on: ubuntu-latest
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge (patch and minor only)
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
+
+      - name: Leave major updates for review
+        if: steps.meta.outputs.update-type == 'version-update:semver-major'
+        env:
+          DEPS: ${{ steps.meta.outputs.dependency-names }}
+        run: 'echo "::notice::Major update ($DEPS): review and merge by hand."'

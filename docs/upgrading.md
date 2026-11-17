@@ -33,6 +33,8 @@ main ──> release.yaml: multi-arch image (signed, SBOM) + chart to GHCR OCI +
 
 The image tag is the T3 version. A weekly rebuild refreshes base-image security fixes under the same tag (new digest); the chart is not re-released for that.
 
+Dependabot (weekly) updates the workflow actions and the Dockerfile base images. `dependabot-automerge.yaml` enables auto-merge on its patch and minor PRs, so they merge once CI passes; major updates are left for review.
+
 ### One-time repository setup
 
 1. **Token for the bot**: create a fine-grained PAT (or a GitHub App) with *Contents* and *Pull requests* read/write on this repo, and save it as the `BOT_TOKEN` secret. PRs opened with the default `GITHUB_TOKEN` do not trigger CI.
