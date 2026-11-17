@@ -32,7 +32,7 @@ jobs:
     env:
       HAS_BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.BOT_TOKEN || github.token }}
 
@@ -80,7 +80,7 @@ jobs:
       - name: Open PR
         if: steps.bump.outputs.changed == 'true'
         id: pr
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.BOT_TOKEN || github.token }}
           branch: upstream/t3-${{ steps.bump.outputs.new_app }}
