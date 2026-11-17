@@ -3,9 +3,9 @@ name: t3code
 description: Self-host the T3 Code server (control plane for coding agents like Claude Code, Codex and OpenCode) on Kubernetes. Unofficial.
 type: application
 # Chart version: bumped automatically (patch) when appVersion changes.
-version: 0.1.1
+version: 0.1.2
 # T3 Code version (npm package `t3`). Single source of truth for the image tag.
-appVersion: "0.1.9"
+appVersion: "0.1.10"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/alessandroros/t3code-k8s
 icon: https://t3.codes/favicon.ico
@@ -33,10 +33,13 @@ annotations:
       url: https://github.com/alessandroros/t3code-k8s
   artifacthub.io/images: |
     - name: t3code
-      image: ghcr.io/alessandroros/t3code:0.1.9
+      image: ghcr.io/alessandroros/t3code:0.1.10
       platforms:
         - linux/amd64
         - linux/arm64
   artifacthub.io/changes: |
-    - kind: added
-      description: Initial release
+    - kind: changed
+      description: Update T3 Code to 0.1.10
+      links:
+        - name: T3 Code release notes
+          url: https://github.com/pingdotgg/t3code/releases/tag/v0.1.10
